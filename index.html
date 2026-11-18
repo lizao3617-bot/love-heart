@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3D Particle Heart</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: #000;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+  }
+  canvas { display: block; width: 100vw; height: 100vh; }
+</style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+
+<script>
+(() => {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  let W, H, CX, CY;
+  
+  function resize() {
+    W = window.innerWidth;
+    H = window.innerHeight;
+    CX = W / 2;
+    CY = H / 2;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  const rotateY = (x, y, z, angle) => {
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    return {
+      x: x * cos - z * sin,
+      y: y,
+      z: x * sin + z * cos
+    };
+  };
+
+  const rotateX = (x, y, z, angle) => {
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    return {
+      x: x,
+      y: y * cos - z * sin,
+      z: y * sin + z * cos
+    };
+  };
+
+  function generateHeartPoints(count, scale) {
+    const points = [];
+    for (let i = 0; i < count; i++) {
+      const u = Math.random() * Math.PI * 2;
+      const v = Math.random() * Math.PI;
+      
+      const t = u;
+      const hx = 16 * Math.pow(Math.sin(t), 3);
+      const hy = -(13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t));
+      
+      const z = (Math.random() - 0.5) * 0.6;
+      
+      const x = hx * (1 - Math.abs(z) * 0.5) * scale;
+      const y = hy * (1 - Math.abs(z) * 0.5) * scale;
+      const zz = z * scale * 4;
+      
+      const noise = 0.15;
+      points.push({
+        x: x + (Math.random() - 0.5) * scale * noise,
+        y: y + (Math.random() - 0.5) * scale * noise,
+        z: zz + (Math.random() - 0.5) * scale * noise * 4
+      });
+    }
+    return points;
+  }
+
+  class Particle {
+    constructor() {
+      this.reset();
+    }
+
+    reset() {
+      this.x = (Math.random() - 0.5) * 40;
+      this.y = (Math.random() - 0.5) * 40;
+      this.z = (Math.random() - 0.5) * 40;
+      
+      this.vx = (Math.random() - 0.5) * 6;
+      this.vy = (Math.random() - 0.5) * 6;
+      this.vz = (Math.random() - 0.5) * 6;
+      
+      this.size = Math.random() * 1.2 + 0.4;
+      this.life = 1;
+      this.decay = Math.random() * 0.008 + 0.003;
+      
+      const colors = ['#00ffff', '#00bfff', '#1e90ff', '#87cefa', '#ffffff'];
+      this.color = colors[Math.floor(Math.random() * colors.length)];
+      
+      this.angle = Math.random() * Math.PI * 2;
+      this.spin = (Math.random() - 0.5) * 0.15;
+
+      this.trail = [];
+      this.maxTrail = Math.floor(Math.random() * 6 + 3);
+
+      this.phase = 'burst';
+      this.target = null;
+      this.heartTarget = null;
+      
+      this.px = 0; this.py = 0;
+      this.scale = 1;
+    }
+
+    update(mouseX, mouseY, frame) {
+      this.trail.push({ x: this.px, y: this.py, scale: this.scale });
+      if (this.trail.length > this.maxTrail) this.trail.shift();
+
+      if (this.phase === 'burst') {
+        this.vx *= 0.96;
+        this.vy *= 0.96;
+        this.vz *= 0.96;
+        this.x += this.vx;
+        this.y += this.vy;
+        this.z += this.vz;
+      } 
+      else if (this.phase === 'heart') {
+        const t = performance.now() * 0.001;
+        const breathe = 1 + Math.sin(t * 1.5) * 0.04;
+        
+        if (!this.heartTarget) {
+          this.heartTarget = { x: 0, y: 0, z: 0 };
+        }
+        
+        const targetX = this.heartTarget.x * breathe;
+        const targetY = this.heartTarget.y * breathe;
+        const targetZ = this.heartTarget.z * breathe;
+        
+        this.vx += (targetX - this.x) * 0.04;
+        this.vy += (targetY - this.y) * 0.04;
+        this.vz += (targetZ - this.z) * 0.04;
+        
+        this.vx *= 0.85;
+        this.vy *= 0.85;
+        this.vz *= 0.85;
+        
+        this.x += this.vx;
+        this.y += this.vy;
+        this.z += this.vz;
+        
+        this.angle += this.spin * 0.05;
+        
+        if (this.heartTarget) {
+          const rotAngle = Math.sin(t * 0.5) * 0.3;
+          const rotated = rotateY(this.heartTarget.x, this.heartTarget.y, this.heartTarget.z, rotAngle * 0.01);
+          this.heartTarget.x = rotated.x;
+          this.heartTarget.z = rotated.z;
+        }
+      }
+      else if (this.phase === 'text' && this.target) {
+        this.vx += (this.target.x - this.x) * 0.12;
+        this.vy += (this.target.y - this.y) * 0.12;
+        this.vz += (this.target.z - this.z) * 0.12;
+        
+        this.vx *= 0.82;
+        this.vy *= 0.82;
+        this.vz *= 0.82;
+        
+        this.x += this.vx;
+        this.y += this.vy;
+        this.z += this.vz;
+        
+        this.angle += 0.02;
+
+        this.life = Math.max(this.life, 0.95);
+      }
+
+      if (this.phase !== 'text') {
+        this.life -= this.decay;
+        if (this.life < 0) this.life = 0;
+      }
+    }
+
+    project() {
+      const focal = 600;
+      const z = this.z + 800;
+      const scale = focal / z;
+      
+      this.scale = Math.max(0.1, scale);
+      this.px = CX + this.x * this.scale;
+      this.py = CY + this.y * this.scale;
+      
+      return {
+        x: this.px,
+        y: this.py,
+        scale: this.scale
+      };
+    }
+
+    draw(ctx) {
+      const proj = this.project();
+      
+      if (proj.scale < 0.1 || proj.scale > 3) return;
+      
+      if (this.trail.length > 1 && this.phase !== 'text') {
+        ctx.beginPath();
+        const start = this.trail[0];
+        ctx.moveTo(start.x, start.y);
+        for (let i = 1; i < this.trail.length; i++) {
+          ctx.lineTo(this.trail[i].x, this.trail[i].y);
+        }
+        ctx.strokeStyle = this.color;
+        ctx.lineWidth = Math.max(0.5, this.size * proj.scale * 0.4);
+        ctx.globalAlpha = this.life * 0.25;
+        ctx.stroke();
+      }
+
+      const scaleX = Math.cos(this.angle);
+      
+      // === В фазе текста частицы МЕНЬШЕ, чтобы надпись была тонкой ===
+      let baseSize;
+      if (this.phase === 'text') {
+        baseSize = this.size * 0.7; // тоньше
+      } else {
+        baseSize = this.size;
+      }
+      
+      const sizeX = baseSize * Math.abs(scaleX) * proj.scale + (this.phase === 'text' ? 0.3 : 0.3);
+      const sizeY = baseSize * proj.scale;
+      
+      ctx.beginPath();
+      ctx.ellipse(proj.x, proj.y, sizeX, sizeY, 0, 0, Math.PI * 2);
+      
+      ctx.fillStyle = this.color;
+      
+      // В тексте свечение чуть мягче, чтобы буквы не «расплывались»
+      const glowAmount = this.phase === 'text' ? 10 : 12;
+      ctx.shadowBlur = Math.max(2, glowAmount * proj.scale);
+      ctx.shadowColor = this.color;
+      
+      let depthAlpha;
+      if (this.phase === 'text') {
+        depthAlpha = Math.min(1, Math.max(0.75, 1 - Math.abs(this.z) / 400));
+      } else {
+        depthAlpha = Math.min(1, Math.max(0.2, 1 - Math.abs(this.z) / 500));
+      }
+      
+      ctx.globalAlpha = this.life * depthAlpha;
+      ctx.fill();
+      
+      if (this.z < 0) {
+        ctx.beginPath();
+        ctx.arc(proj.x, proj.y, sizeX * 2, 0, Math.PI * 2);
+        ctx.fillStyle = this.color;
+        ctx.globalAlpha = this.life * 0.12;
+        ctx.fill();
+      }
+      
+      ctx.shadowBlur = 0;
+    }
+  }
+
+  // === ТОЧКИ ТЕКСТА: тоньше шрифт, тоньше сетка ===
+  function getTextPoints(text, fontSize) {
+    const tempCanvas = document.createElement('canvas');
+    const tempCtx = tempCanvas.getContext('2d');
+    
+    const scaleFactor = 2;
+    tempCanvas.width = W * scaleFactor;
+    tempCanvas.height = H * scaleFactor;
+    
+    tempCtx.scale(scaleFactor, scaleFactor);
+    tempCtx.fillStyle = '#fff';
+    // Убираем жирность — теперь шрифт нормальной толщины
+    tempCtx.font = `300 ${fontSize}px 'Segoe UI', system-ui, sans-serif`;
+    tempCtx.textAlign = 'center';
+    tempCtx.textBaseline = 'middle';
+    
+    const lines = text.split('\n');
+    const lineHeight = fontSize * 1.25;
+    const totalHeight = lines.length * lineHeight;
+    
+    lines.forEach((line, index) => {
+      const y = H/2 - totalHeight/2 + lineHeight/2 + index * lineHeight;
+      tempCtx.fillText(line, W/2, y);
+    });
+
+    const imageData = tempCtx.getImageData(0, 0, W * scaleFactor, H * scaleFactor).data;
+    const points = [];
+    
+    // Шаг мелкий, но порог выше — берём только «ядро» буквы,
+    // поэтому линии букв тонкие и без «ореола» из лишних точек
+    const step = Math.max(1, Math.floor(fontSize / 40));
+    
+    for (let y = 0; y < H * scaleFactor; y += step) {
+      for (let x = 0; x < W * scaleFactor; x += step) {
+        const index = (y * W * scaleFactor + x) * 4;
+        if (imageData[index + 3] > 140) {
+          points.push({
+            x: x / scaleFactor - W/2,
+            y: y / scaleFactor - H/2,
+            z: (Math.random() - 0.5) * 10
+          });
+        }
+      }
+    }
+    
+    return points;
+  }
+
+  const particles = [];
+  const particleCount = 1200;
+  let textPoints = [];
+  let frame = 0;
+  let phase = 'intro';
+  let mouseX = 0, mouseY = 0;
+
+  document.addEventListener('mousemove', (e) => {
+    mouseX = (e.clientX - W/2) / W;
+    mouseY = (e.clientY - H/2) / H;
+  });
+
+  for (let i = 0; i < particleCount; i++) {
+    particles.push(new Particle());
+  }
+
+  function animate() {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+    ctx.fillRect(0, 0, W, H);
+
+    frame++;
+
+    if (frame === 20) {
+      phase = 'heart';
+      
+      const scale = Math.min(W, H) * 0.022;
+      const heartPoints = generateHeartPoints(particleCount, scale);
+      
+      particles.forEach((p, i) => {
+        p.phase = 'heart';
+        p.vx = 0; p.vy = 0; p.vz = 0;
+        if (i < heartPoints.length) {
+          p.heartTarget = heartPoints[i];
+        }
+      });
+    }
+
+    if (frame === 240) {
+      phase = 'text';
+      
+      const fontSize = Math.min(W, H) * 0.13;
+      const textStr = 'я очень сильно\nлюблю тебя';
+      textPoints = getTextPoints(textStr, fontSize);
+      
+      textPoints.sort(() => Math.random() - 0.5);
+      
+      particles.forEach((p, i) => {
+        p.phase = 'text';
+        p.heartTarget = null;
+        
+        if (textPoints.length > 0) {
+          const targetIndex = i % textPoints.length;
+          p.target = textPoints[targetIndex];
+          p.color = Math.random() > 0.5 ? '#ff1a47' : '#ff7096';
+        }
+      });
+    }
+
+    const globalRotation = phase === 'heart' ? Math.sin(frame * 0.01) * 0.3 : 0;
+
+    particles.forEach(p => {
+      if (p.phase === 'heart' && p.heartTarget) {
+        const rotated = rotateY(p.heartTarget.x, p.heartTarget.y, p.heartTarget.z, globalRotation);
+        p.heartTarget.x = rotated.x;
+        p.heartTarget.z = rotated.z;
+      }
+      
+      p.update(mouseX, mouseY, frame);
+      p.draw(ctx);
+    });
+
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+
+    requestAnimationFrame(animate);
+  }
+
+  animate();
+
+  document.body.addEventListener('click', () => {
+    frame = 0;
+    phase = 'intro';
+    particles.forEach(p => p.reset());
+    textPoints = [];
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+  });
+
+})();
+</script>
+</body>
+</html>
